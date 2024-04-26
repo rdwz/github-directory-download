@@ -1,8 +1,8 @@
 :root {
 	--font-size: 17px;
 	--line-height: 1.7;
-	--light-green: #2c5700;
-	--dark-green: #153d20;
+	--light-green: #257;
+	--dark-green: #132;
 	color-scheme: dark;
 }
 
@@ -14,8 +14,7 @@ html {
 	overflow-y: auto;
 	min-width: 320px;
 	font: var(--font-size) / var(--line-height) Roboto, sans-serif;
-	background: linear-gradient(to bottom, var(--light-green), var(--dark-green))
-		var(--light-green);
+	background: linear-gradient(to bottom, var(--light-green), var(--dark-green))	var(--light-green);
 	color: #fff;
 	word-break: break-word;
 }

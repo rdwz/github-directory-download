@@ -1,9 +1,8 @@
-import saveFile from 'save-file';
 import listContent from 'list-github-dir-content';
 import pMap from 'p-map';
 import pRetry from 'p-retry';
+import saveFile from 'save-file';
 
-// Matches '/<re/po>/tree/<ref>/<dir>'
 const urlParserRegex = /^[/]([^/]+)[/]([^/]+)[/]tree[/]([^/]+)[/](.*)/;
 
 async function maybeResponseLfs(response) {
@@ -14,7 +13,8 @@ async function maybeResponseLfs(response) {
 	}
 }
 
-async function repoListingSlashblanchSupport(ref, dir, repoListingConfig) {
+async function repoListingSlashBranchSupport(_reference, dir, repoListingConfig) {
+	let reference = _reference;
 	let files;
 	const dirParts = decodeURIComponent(dir).split('/');
 	while (dirParts.length >= 0) {
@@ -23,9 +23,9 @@ async function repoListingSlashblanchSupport(ref, dir, repoListingConfig) {
 			break;
 		} catch (error) {
 			if (error.message === 'Not Found') {
-				ref += '/' + dirParts.shift();
+				reference += `/${dirParts.shift()}`;
 				repoListingConfig.directory = dirParts.join('/');
-				repoListingConfig.ref = ref;
+				repoListingConfig.ref = reference;
 			} else {
 				throw error;
 			}
@@ -33,17 +33,19 @@ async function repoListingSlashblanchSupport(ref, dir, repoListingConfig) {
 	}
 
 	if (files.length === 0 && files.truncated) {
-		updateStatus('Warning: It’s a large repo and this it take a long while just to download the list of files. You might want to use "git sparse checkout" instead.');
+		updateStatus(
+			'Warning: It’s a large repo and this it take a long while just to download the list of files. You might want to use "git sparse checkout" instead.',
+		);
 		files = await listContent.viaContentsApi(repoListingConfig);
 	}
 
-	return [files, ref];
+	return [files, reference];
 }
 
 function updateStatus(status, ...extra) {
 	const element = document.querySelector('.status');
 	if (status) {
-		element.prepend(status + '\n');
+		element.prepend(`${status}\n`);
 	} else {
 		element.textContent = status || '';
 	}
@@ -73,24 +75,31 @@ async function waitForToken() {
 }
 
 async function fetchRepoInfo(repo) {
-	const response = await fetch(`https://api.github.com/repos/${repo}`,
-		localStorage.token ? {
-			headers: {
-				Authorization: `Bearer ${localStorage.token}`,
-			},
-		} : {},
+	const response = await fetch(
+		`https://api.github.com/repos/${repo}`,
+		localStorage.token
+			? {
+				headers: {
+					Authorization: `Bearer ${localStorage.token}`,
+				},
+			}
+			: {},
 	);
 
 	switch (response.status) {
 		case 401: {
-			updateStatus('⚠ The token provided is invalid or has been revoked.', {token: localStorage.token});
+			updateStatus('⚠ The token provided is invalid or has been revoked.', {
+				token: localStorage.token,
+			});
 			throw new Error('Invalid token');
 		}
 
 		case 403: {
 			// See https://developer.github.com/v3/#rate-limiting
 			if (response.headers.get('X-RateLimit-Remaining') === '0') {
-				updateStatus('⚠ Your token rate limit has been exceeded.', {token: localStorage.token});
+				updateStatus('⚠ Your token rate limit has been exceeded.', {
+					token: localStorage.token,
+				});
 				throw new Error('Rate limit exceeded');
 			}
 
@@ -106,7 +115,10 @@ async function fetchRepoInfo(repo) {
 	}
 
 	if (!response.ok) {
-		updateStatus('⚠ Could not obtain repository data from the GitHub API.', {repo, response});
+		updateStatus('⚠ Could not obtain repository data from the GitHub API.', {
+			repo,
+			response,
+		});
 		throw new Error('Fetch error');
 	}
 
@@ -126,7 +138,7 @@ async function init() {
 	const zipPromise = getZIP();
 	let user;
 	let repository;
-	let ref;
+	let reference;
 	let dir;
 
 	const input = document.querySelector('#token');
@@ -143,9 +155,11 @@ async function init() {
 	try {
 		const query = new URLSearchParams(location.search);
 		const parsedUrl = new URL(query.get('url'));
-		[, user, repository, ref, dir] = urlParserRegex.exec(parsedUrl.pathname);
+		[, user, repository, reference, dir] = urlParserRegex.exec(parsedUrl.pathname);
 
-		console.log('Source:', {user, repository, ref, dir});
+		console.log('Source:', {
+			user, repository, ref: reference, dir,
+		});
 	} catch {
 		return updateStatus();
 	}
@@ -155,20 +169,28 @@ async function init() {
 		throw new Error('You are offline');
 	}
 
-	updateStatus(`Retrieving directory info \nRepo: ${user}/${repository}\nDirectory: /${dir}`);
+	updateStatus(
+		`Retrieving directory info \nRepo: ${user}/${repository}\nDirectory: /${dir}`,
+	);
 
-	const {private: repoIsPrivate} = await fetchRepoInfo(`${user}/${repository}`);
+	const {private: repoIsPrivate} = await fetchRepoInfo(
+		`${user}/${repository}`,
+	);
 
 	const repoListingConfig = {
 		user,
 		repository,
-		ref,
+		ref: reference,
 		directory: decodeURIComponent(dir),
 		token: localStorage.token,
 		getFullData: true,
 	};
 	let files;
-	[files, ref] = await repoListingSlashblanchSupport(ref, dir, repoListingConfig);
+	[files, reference] = await repoListingSlashBranchSupport(
+		reference,
+		dir,
+		repoListingConfig,
+	);
 
 	if (files.length === 0) {
 		updateStatus('No files to download');
@@ -180,18 +202,28 @@ async function init() {
 	const controller = new AbortController();
 
 	const fetchPublicFile = async file => {
-		const response = await fetch(`https://raw.githubusercontent.com/${user}/${repository}/${ref}/${escapeFilepath(file.path)}`, {
-			signal: controller.signal,
-		});
+		const response = await fetch(
+			`https://raw.githubusercontent.com/${user}/${repository}/${reference}/${escapeFilepath(
+				file.path,
+			)}`,
+			{
+				signal: controller.signal,
+			},
+		);
 
 		if (!response.ok) {
 			throw new Error(`HTTP ${response.statusText} for ${file.path}`);
 		}
 
-		const lfsCompatibleResponse = await maybeResponseLfs(response)
-			? await fetch(`https://media.githubusercontent.com/media/${user}/${repository}/${ref}/${escapeFilepath(file.path)}`, {
-				signal: controller.signal,
-			})
+		const lfsCompatibleResponse = (await maybeResponseLfs(response))
+			? await fetch(
+				`https://media.githubusercontent.com/media/${user}/${repository}/${reference}/${escapeFilepath(
+					file.path,
+				)}`,
+				{
+					signal: controller.signal,
+				},
+			)
 			: response;
 
 		if (!response.ok) {
@@ -214,16 +246,21 @@ async function init() {
 		}
 
 		const {content} = await response.json();
-		const decoder = await fetch(`data:application/octet-stream;base64,${content}`);
+		const decoder = await fetch(
+			`data:application/octet-stream;base64,${content}`,
+		);
 		return decoder.blob();
 	};
 
 	let downloaded = 0;
 
 	const downloadFile = async file => {
-		const localDownload = () => repoIsPrivate ? fetchPrivateFile(file) : fetchPublicFile(file);
+		const localDownload = () =>
+			repoIsPrivate ? fetchPrivateFile(file) : fetchPublicFile(file);
 		const onFailedAttempt = error => {
-			console.error(`Error downloading ${file.url}. Attempt ${error.attemptNumber}. ${error.retriesLeft} retries left.`);
+			console.error(
+				`Error downloading ${file.url}. Attempt ${error.attemptNumber}. ${error.retriesLeft} retries left.`,
+			);
 		};
 
 		const blob = await pRetry(localDownload, {onFailedAttempt});
@@ -232,7 +269,7 @@ async function init() {
 		updateStatus(file.path);
 
 		const zip = await zipPromise;
-		zip.file(file.path.replace(dir + '/', ''), blob, {
+		zip.file(file.path.replace(`${dir}/`, ''), blob, {
 			binary: true,
 		});
 	};
@@ -249,7 +286,9 @@ async function init() {
 		} else if (error.message.startsWith('HTTP ')) {
 			updateStatus('⚠ Could not download all files.');
 		} else {
-			updateStatus('⚠ Some files were blocked from downloading, try to disable any ad blockers and refresh the page.');
+			updateStatus(
+				'⚠ Some files were blocked from downloading, try to disable any ad blockers and refresh the page.',
+			);
 		}
 
 		throw error;
@@ -262,7 +301,10 @@ async function init() {
 		type: 'blob',
 	});
 
-	await saveFile(zipBlob, `${user} ${repository} ${ref} ${dir}.zip`.replace(/\//, '-'));
+	await saveFile(
+		zipBlob,
+		`${user} ${repository} ${reference} ${dir}.zip`.replace(/\//, '-'),
+	);
 	updateStatus(`Downloaded ${downloaded} files! Done!`);
 }
 
